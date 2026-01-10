@@ -131,9 +131,9 @@ jobs:
           Write-Host "✅ Brave set as default browser (policy applied)"
 
       # ===============================
-      # 📦 Dev Tools + Node 20.15.1
+      # 📦 Dev Tools + Node 20.15.1 + Yarn & PNPM
       # ===============================
-      - name: Install Development Tools and Node
+      - name: Install Development Tools
         shell: powershell
         run: |
           # تحديث مصادر winget
@@ -144,33 +144,23 @@ jobs:
               "Git.Git",
               "Microsoft.VisualStudioCode",
               "Notepad++.Notepad++",
-              "Docker.DockerDesktop",
-              "CoreyButler.NVMforWindows"
+              "Docker.DockerDesktop"
           )
-
           foreach ($tool in $tools) {
-              Write-Host "Installing $tool ..."
               winget install --id $tool -e --silent --accept-package-agreements --accept-source-agreements
           }
 
-          # مسار NVM
-          $nvmPath = "C:\Program Files\nvm\nvm.exe"
-          if (-not (Test-Path $nvmPath)) { Write-Error "❌ NVM not found"; exit 1 }
+      - name: Setup Node 20.15.1
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20.15.1
 
-          # تثبيت Node 20.15.1 واستخدامه
-          & $nvmPath install 20.15.1
-          & $nvmPath use 20.15.1
-
-          # تحقق من النسخ
-          node -v
-          npm -v
-
-          # تثبيت Yarn و PNPM
+      - name: Install Yarn & PNPM
+        shell: powershell
+        run: |
           npm install -g yarn pnpm
           yarn -v
           pnpm -v
-
-          Write-Host "✅ Development environment ready"
 
       # ===============================
       # 🔁 Keep RDP Alive
