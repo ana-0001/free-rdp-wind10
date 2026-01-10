@@ -97,9 +97,9 @@ jobs:
           # Reload PATH
           $env:PATH += ";C:\Program Files\nodejs;C:\Users\RDP\AppData\Roaming\nvm"
 
-          # Install Node.js 20.15.1
-          nvm install 20.15.1
-          nvm use 20.15.1
+          # Install Node.js 20
+          nvm install 20
+          nvm use 20
 
           # Yarn & pnpm
           npm install -g yarn pnpm
