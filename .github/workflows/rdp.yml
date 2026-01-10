@@ -13,6 +13,7 @@ jobs:
       # 🖥️ Enable RDP + Firewall
       # ===============================
       - name: Configure Core RDP Settings
+        shell: powershell
         run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
             -Name "fDenyTSConnections" -Value 0 -Force
@@ -32,6 +33,7 @@ jobs:
       # 👤 Create RDP User
       # ===============================
       - name: Create RDP User
+        shell: powershell
         run: |
           $password = "Admin@000"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
@@ -49,6 +51,7 @@ jobs:
       # 🌐 Install Tailscale
       # ===============================
       - name: Install Tailscale
+        shell: powershell
         run: |
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
@@ -61,19 +64,20 @@ jobs:
       # 🔐 Tailscale Auth Key Login
       # ===============================
       - name: Establish Tailscale Connection (Auth Key)
+        shell: powershell
         run: |
           $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
 
           & $ts up `
             --authkey=${{ secrets.TAILSCALE_AUTHKEY }} `
             --hostname=gh-win11-$env:GITHUB_RUN_ID `
+            --advertise-tags=tag:github `
             --accept-dns `
             --accept-routes `
             --reset
 
-          # Wait for IP
           $tsIP = $null
-          for ($i = 0; $i -lt 10; $i++) {
+          for ($i = 0; $i -lt 12; $i++) {
               $tsIP = & $ts ip -4
               if ($tsIP) { break }
               Start-Sleep -Seconds 5
@@ -90,13 +94,15 @@ jobs:
       # 🔍 Verify RDP
       # ===============================
       - name: Verify RDP Accessibility
+        shell: powershell
         run: |
           Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
 
       # ===============================
       # 🔤 Arabic Keyboard (Egypt)
       # ===============================
-      - name: Install Arabic (Egypt) Keyboard
+      - name: Install Arabic Keyboard (Egypt)
+        shell: powershell
         run: |
           $list = Get-WinUserLanguageList
           if ($list.LanguageTag -notcontains "ar-EG") {
@@ -105,9 +111,10 @@ jobs:
           }
 
       # ===============================
-      # 📦 Dev Tools
+      # 📦 Dev Tools + Node 20.15.1
       # ===============================
       - name: Install Development Tools
+        shell: powershell
         run: |
           winget source update
 
@@ -117,19 +124,25 @@ jobs:
           winget install --id Docker.DockerDesktop -e --silent --accept-package-agreements --accept-source-agreements
           winget install --id CoreyButler.NVMforWindows -e --silent --accept-package-agreements --accept-source-agreements
 
-          $env:PATH += ";C:\Program Files\nodejs;C:\Users\RDP\AppData\Roaming\nvm"
+          # ---- Force PATH for this step
+          $env:NVM_HOME = "C:\Program Files\nvm"
+          $env:NVM_SYMLINK = "C:\Program Files\nodejs"
+          $env:PATH += ";$env:NVM_HOME;$env:NVM_SYMLINK"
 
-          nvm install 20
-          nvm use 20
+          & "$env:NVM_HOME\nvm.exe" version
+
+          & "$env:NVM_HOME\nvm.exe" install 20.15.1
+          & "$env:NVM_HOME\nvm.exe" use 20.15.1
 
           npm install -g yarn pnpm
 
-          Write-Host "✅ Dev stack installed"
+          Write-Host "✅ Dev environment ready"
 
       # ===============================
       # 🔁 Keep RDP Alive
       # ===============================
       - name: Maintain Connection
+        shell: powershell
         run: |
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "IP: $env:TAILSCALE_IP"
