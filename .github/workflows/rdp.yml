@@ -111,6 +111,27 @@ jobs:
           }
 
       # ===============================
+      # 🌐 Install Browsers
+      # ===============================
+      - name: Install Browsers (Brave + Chrome)
+        shell: powershell
+        run: |
+          winget install --id Brave.Brave -e --silent --accept-package-agreements --accept-source-agreements
+          winget install --id Google.Chrome -e --silent --accept-package-agreements --accept-source-agreements
+
+      # ===============================
+      # ⭐ Set Brave as Default Browser
+      # ===============================
+      - name: Set Brave as Default Browser
+        shell: powershell
+        run: |
+          $policyPath = "HKLM:\SOFTWARE\Policies\BraveSoftware\Brave"
+          New-Item -Path $policyPath -Force | Out-Null
+          Set-ItemProperty -Path $policyPath -Name "DefaultBrowserSettingEnabled" -Type DWord -Value 1
+
+          Write-Host "✅ Brave set as default browser (policy applied)"
+
+      # ===============================
       # 📦 Dev Tools + Node 20.15.1
       # ===============================
       - name: Install Development Tools
@@ -124,12 +145,9 @@ jobs:
           winget install --id Docker.DockerDesktop -e --silent --accept-package-agreements --accept-source-agreements
           winget install --id CoreyButler.NVMforWindows -e --silent --accept-package-agreements --accept-source-agreements
 
-          # ---- Force PATH for this step
           $env:NVM_HOME = "C:\Program Files\nvm"
           $env:NVM_SYMLINK = "C:\Program Files\nodejs"
           $env:PATH += ";$env:NVM_HOME;$env:NVM_SYMLINK"
-
-          & "$env:NVM_HOME\nvm.exe" version
 
           & "$env:NVM_HOME\nvm.exe" install 20.15.1
           & "$env:NVM_HOME\nvm.exe" use 20.15.1
@@ -148,6 +166,7 @@ jobs:
           Write-Host "IP: $env:TAILSCALE_IP"
           Write-Host "User: RDP"
           Write-Host "Password: Admin@000"
+          Write-Host "Browser: Brave (Default)"
           Write-Host "=================="
 
           while ($true) {
