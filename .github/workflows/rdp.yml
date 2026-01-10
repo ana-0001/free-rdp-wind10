@@ -1,4 +1,4 @@
-name: wind-11 
+name: wind-11
 
 on:
   workflow_dispatch:
@@ -9,6 +9,9 @@ jobs:
     timeout-minutes: 350
 
     steps:
+      # ===============================
+      # 🖥️ Enable RDP + Firewall
+      # ===============================
       - name: Configure Core RDP Settings
         run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
@@ -25,6 +28,9 @@ jobs:
 
           Restart-Service -Name TermService -Force
 
+      # ===============================
+      # 👤 Create RDP User
+      # ===============================
       - name: Create RDP User
         run: |
           $password = "Admin@000"
@@ -39,6 +45,9 @@ jobs:
 
           echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
 
+      # ===============================
+      # 🌐 Install Tailscale
+      # ===============================
       - name: Install Tailscale
         run: |
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
@@ -48,15 +57,38 @@ jobs:
           Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
           Remove-Item $installerPath -Force
 
-      - name: Establish Tailscale Connection
+      # ===============================
+      # 🔐 Tailscale Auth Key Login
+      # ===============================
+      - name: Establish Tailscale Connection (Auth Key)
         run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
-            --authkey=${{ secrets.TAILSCALE_AUTHKEY }} `
-            --hostname=gh-runner-$env:GITHUB_RUN_ID
+          $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
 
-          $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          & $ts up `
+            --authkey=${{ secrets.TAILSCALE_AUTHKEY }} `
+            --hostname=gh-win11-$env:GITHUB_RUN_ID `
+            --accept-dns `
+            --accept-routes `
+            --reset
+
+          # Wait for IP
+          $tsIP = $null
+          for ($i = 0; $i -lt 10; $i++) {
+              $tsIP = & $ts ip -4
+              if ($tsIP) { break }
+              Start-Sleep -Seconds 5
+          }
+
+          if (-not $tsIP) {
+              Write-Error "❌ Failed to obtain Tailscale IP"
+              exit 1
+          }
+
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
+      # ===============================
+      # 🔍 Verify RDP
+      # ===============================
       - name: Verify RDP Accessibility
         run: |
           Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
@@ -73,35 +105,23 @@ jobs:
           }
 
       # ===============================
-      # 📦 Install Dev Tools & Apps
+      # 📦 Dev Tools
       # ===============================
       - name: Install Development Tools
         run: |
           winget source update
 
-          # Git
           winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements
-
-          # VS Code
           winget install --id Microsoft.VisualStudioCode -e --silent --accept-package-agreements --accept-source-agreements
-
-          # Notepad++
           winget install --id Notepad++.Notepad++ -e --silent --accept-package-agreements --accept-source-agreements
-
-          # Docker Desktop (may require reboot – acceptable)
           winget install --id Docker.DockerDesktop -e --silent --accept-package-agreements --accept-source-agreements
-
-          # nvm for Windows
           winget install --id CoreyButler.NVMforWindows -e --silent --accept-package-agreements --accept-source-agreements
 
-          # Reload PATH
           $env:PATH += ";C:\Program Files\nodejs;C:\Users\RDP\AppData\Roaming\nvm"
 
-          # Install Node.js 20
           nvm install 20
           nvm use 20
 
-          # Yarn & pnpm
           npm install -g yarn pnpm
 
           Write-Host "✅ Dev stack installed"
