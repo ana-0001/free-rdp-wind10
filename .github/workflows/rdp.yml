@@ -111,9 +111,9 @@ jobs:
           }
 
       # ===============================
-      # 🌐 Install Browsers
+      # 🌐 Install Browsers (Brave + Chrome)
       # ===============================
-      - name: Install Browsers (Brave + Chrome)
+      - name: Install Browsers
         shell: powershell
         run: |
           winget install --id Brave.Brave -e --silent --accept-package-agreements --accept-source-agreements
@@ -128,34 +128,49 @@ jobs:
           $policyPath = "HKLM:\SOFTWARE\Policies\BraveSoftware\Brave"
           New-Item -Path $policyPath -Force | Out-Null
           Set-ItemProperty -Path $policyPath -Name "DefaultBrowserSettingEnabled" -Type DWord -Value 1
-
           Write-Host "✅ Brave set as default browser (policy applied)"
 
       # ===============================
       # 📦 Dev Tools + Node 20.15.1
       # ===============================
-      - name: Install Development Tools
+      - name: Install Development Tools and Node
         shell: powershell
         run: |
+          # تحديث مصادر winget
           winget source update
 
-          winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements
-          winget install --id Microsoft.VisualStudioCode -e --silent --accept-package-agreements --accept-source-agreements
-          winget install --id Notepad++.Notepad++ -e --silent --accept-package-agreements --accept-source-agreements
-          winget install --id Docker.DockerDesktop -e --silent --accept-package-agreements --accept-source-agreements
-          winget install --id CoreyButler.NVMforWindows -e --silent --accept-package-agreements --accept-source-agreements
+          # تثبيت الأدوات الأساسية
+          $tools = @(
+              "Git.Git",
+              "Microsoft.VisualStudioCode",
+              "Notepad++.Notepad++",
+              "Docker.DockerDesktop",
+              "CoreyButler.NVMforWindows"
+          )
 
-          $env:NVM_HOME="C:\nvm"
-          $env:NVM_SYMLINK="C:\Program Files\nodejs"
-          $env:PATH="$env:NVM_HOME;$env:NVM_SYMLINK;$env:PATH"
+          foreach ($tool in $tools) {
+              Write-Host "Installing $tool ..."
+              winget install --id $tool -e --silent --accept-package-agreements --accept-source-agreements
+          }
 
-          nvm install 20.15.1
-          nvm use 20.15.1
+          # مسار NVM
+          $nvmPath = "C:\Program Files\nvm\nvm.exe"
+          if (-not (Test-Path $nvmPath)) { Write-Error "❌ NVM not found"; exit 1 }
+
+          # تثبيت Node 20.15.1 واستخدامه
+          & $nvmPath install 20.15.1
+          & $nvmPath use 20.15.1
+
+          # تحقق من النسخ
           node -v
+          npm -v
 
+          # تثبيت Yarn و PNPM
           npm install -g yarn pnpm
+          yarn -v
+          pnpm -v
 
-          Write-Host "✅ Dev environment ready"
+          Write-Host "✅ Development environment ready"
 
       # ===============================
       # 🔁 Keep RDP Alive
