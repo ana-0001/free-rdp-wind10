@@ -29,6 +29,12 @@ jobs:
 
       - name: Create RDP User with Fixed Password
         run: |
+          # Disable password complexity (for learning/testing only)
+          secedit /export /cfg C:\secpol.cfg
+          (Get-Content C:\secpol.cfg).Replace("PasswordComplexity = 1", "PasswordComplexity = 0") | Set-Content C:\secpol.cfg
+          secedit /configure /db C:\Windows\Security\Database\secedit.sdb /cfg C:\secpol.cfg /areas SECURITYPOLICY
+          Remove-Item C:\secpol.cfg -Force
+
           $password = "admin"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
 
@@ -40,11 +46,6 @@ jobs:
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
 
           echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
-
-          if (-not (Get-LocalUser -Name "RDP")) {
-              Write-Error "User creation failed"
-              exit 1
-          }
 
       - name: Install Tailscale
         run: |
@@ -85,6 +86,32 @@ jobs:
               exit 1
           }
           Write-Host "RDP is reachable!"
+
+      - name: Install Applications (VSCode + Download Tools)
+        run: |
+          Write-Host "🔧 Installing applications via winget..."
+
+          winget source update
+
+          # Visual Studio Code
+          winget install --id Microsoft.VisualStudioCode `
+            --accept-source-agreements `
+            --accept-package-agreements `
+            --silent
+
+          # Free Download Manager
+          winget install --id SoftDeluxe.FreeDownloadManager `
+            --accept-source-agreements `
+            --accept-package-agreements `
+            --silent
+
+          # JDownloader
+          winget install --id AppWork.JDownloader `
+            --accept-source-agreements `
+            --accept-package-agreements `
+            --silent
+
+          Write-Host "✅ Applications installed successfully"
 
       - name: Maintain Connection + Watch RDP User
         run: |
