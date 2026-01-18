@@ -1,180 +1,164 @@
-name: wind-11
+name: RDP-Windows-10
 
 on:
   workflow_dispatch:
+    inputs:
+      rdp_username:
+        description: 'اسم المستخدم للوصول إلى RDP (الافتراضي: RDP)'
+        required: false
+        default: 'RDP'
+      rdp_password:
+        description: 'كلمة المرور للوصول إلى RDP (اتركها فارغة لإنشاء كلمة مرور عشوائية قوية)'
+        required: false
+        default: 'Admin_000'
+      tailscale_hostname_prefix:
+        description: 'بادئة لاسم مضيف Tailscale'
+        required: false
+        default: 'win10-rdp'
+      session_duration:
+        description: 'مدة التشغيل بالساعات (القصوى 24 ساعة)'
+        required: false
+        default: '6'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '4'
+          - '6'
+          - '12'
+          - '24'
 
 jobs:
-  secure-rdp:
-    runs-on: windows-latest
-    timeout-minutes: 350
+  secure-rdp-session:
+    runs-on: windows-2019  # Windows Server 2019 (أقرب لـ Windows 10)
+    timeout-minutes: ${{ fromJSON(github.event.inputs.session_duration) * 60 }}
 
     steps:
-      # ===============================
-      # 🖥️ Enable RDP + Firewall
-      # ===============================
-      - name: Configure Core RDP Settings
-        shell: powershell
+      - name: Configure Windows 10 RDP Settings
+        shell: pwsh
         run: |
+          Write-Host "Configuring Windows 10 RDP Settings..."
+          
+          # تمكين Remote Desktop
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-            -Name "fDenyTSConnections" -Value 0 -Force
+                           -Name "fDenyTSConnections" -Value 0 -Force
 
+          # تفعيل NLA
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-            -Name "UserAuthentication" -Value 0 -Force
+                           -Name "UserAuthentication" -Value 1 -Force
 
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-            -Name "SecurityLayer" -Value 0 -Force
+          # Windows 10 إعدادات خاصة بـ
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' `
+                           -Name "fPromptForPassword" -Value 0 -Force -ErrorAction SilentlyContinue
 
-          netsh advfirewall firewall delete rule name="RDP-Tailscale" 2>$null
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+          # تعطيل Windows Defender Firewall مؤقتاً لتجنب المشاكل
+          Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False -ErrorAction SilentlyContinue
 
-          Restart-Service -Name TermService -Force
+          # فتح منفذ RDP
+          New-NetFirewallRule -DisplayName "RDP-Win10" `
+                              -Direction Inbound `
+                              -Protocol TCP `
+                              -LocalPort 3389 `
+                              -Action Allow `
+                              -ErrorAction SilentlyContinue
 
-      # ===============================
-      # 👤 Create RDP User
-      # ===============================
-      - name: Create RDP User
-        shell: powershell
+          # تمكين RDP
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+                           -Name "fDenyTSConnections" -Value 0 -Force
+          
+          Restart-Service TermService -Force
+
+      - name: Create RDP User Account
+        id: create_user
+        shell: pwsh
         run: |
-          $password = "Admin@000"
+          $username = "${{ github.event.inputs.rdp_username }}"
+          $inputPassword = "${{ github.event.inputs.rdp_password }}"
+          
+          if ($inputPassword -eq "Admin_000" -or $inputPassword -eq "") {
+              $password = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 12 | % {[char]$_})
+          } else {
+              $password = $inputPassword
+          }
+          
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          # حذف المستخدم إذا كان موجوداً
+          Remove-LocalUser -Name $username -ErrorAction SilentlyContinue
+          
+          # إنشاء مستخدم جديد
+          New-LocalUser -Name $username -Password $securePass -FullName "RDP User" -Description "GitHub RDP User"
+          
+          # إضافة إلى المجموعات
+          Add-LocalGroupMember -Group "Administrators" -Member $username
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          
+          # تعطيل انتهاء صلاحية الحساب
+          Set-LocalUser -Name $username -PasswordNeverExpires $true -AccountNeverExpires
+          
+          echo "rdp_password=$password" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding UTF8
 
-          if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
-              New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
-          }
-
-          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
-
-          echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
-
-      # ===============================
-      # 🌐 Install Tailscale
-      # ===============================
-      - name: Install Tailscale
-        shell: powershell
+      - name: Install Tailscale for Windows 10
+        shell: pwsh
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
+          Write-Host "Installing Tailscale for Windows 10..."
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-amd64.msi"
+          $installer = "$env:TEMP\tailscale.msi"
+          
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          Start-Process msiexec.exe -Wait -ArgumentList "/i", "`"$installer`"", "/quiet", "/norestart"
+          Remove-Item $installer -Force
 
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
-
-      # ===============================
-      # 🔐 Tailscale Auth Key Login
-      # ===============================
-      - name: Establish Tailscale Connection (Auth Key)
-        shell: powershell
+      - name: Connect to Tailscale
+        id: tailscale
+        shell: pwsh
         run: |
-          $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
-
-          & $ts up `
-            --authkey=${{ secrets.TAILSCALE_AUTHKEY }} `
-            --hostname=gh-win11-$env:GITHUB_RUN_ID `
-            --advertise-tags=tag:github `
-            --accept-dns `
-            --accept-routes `
-            --reset
-
-          $tsIP = $null
-          for ($i = 0; $i -lt 12; $i++) {
-              $tsIP = & $ts ip -4
-              if ($tsIP) { break }
-              Start-Sleep -Seconds 5
-          }
-
-          if (-not $tsIP) {
-              Write-Error "❌ Failed to obtain Tailscale IP"
+          $hostname = "${{ github.event.inputs.tailscale_hostname_prefix }}-$env:GITHUB_RUN_ID"
+          
+          if (-not "${{ secrets.TAILSCALE_AUTH_KEY }}") {
+              Write-Error "❌ TAILSCALE_AUTH_KEY missing!"
               exit 1
           }
+          
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+            --authkey="${{ secrets.TAILSCALE_AUTH_KEY }}" `
+            --hostname="$hostname" `
+            --accept-routes `
+            --accept-dns
+          
+          # الحصول على IP
+          Start-Sleep -Seconds 10
+          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          $ip = $ip.Trim()
+          
+          echo "tailscale_ip=$ip" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding UTF8
 
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-
-      # ===============================
-      # 🔍 Verify RDP
-      # ===============================
-      - name: Verify RDP Accessibility
-        shell: powershell
+      - name: Display Connection Info
+        shell: pwsh
         run: |
-          Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-
-      # ===============================
-      # 🔤 Arabic Keyboard (Egypt)
-      # ===============================
-      - name: Install Arabic Keyboard (Egypt)
-        shell: powershell
-        run: |
-          $list = Get-WinUserLanguageList
-          if ($list.LanguageTag -notcontains "ar-EG") {
-              $list.Add("ar-EG")
-              Set-WinUserLanguageList $list -Force
+          $duration = ${{ fromJSON(github.event.inputs.session_duration) }}
+          $hours = $duration
+          $minutes = $hours * 60
+          
+          Write-Host "`n" + "="*60
+          Write-Host "WINDOWS 10 RDP READY"
+          Write-Host "="*60
+          Write-Host "IP Address: ${{ steps.tailscale.outputs.tailscale_ip }}"
+          Write-Host "Username: ${{ github.event.inputs.rdp_username }}"
+          Write-Host "Password: ${{ steps.create_user.outputs.rdp_password }}"
+          Write-Host "-"*60
+          Write-Host "Session Duration: $hours hours"
+          Write-Host "Timeout: $minutes minutes"
+          Write-Host "="*60
+          
+          # الحفاظ على الجلسة نشطة
+          $startTime = Get-Date
+          $endTime = $startTime.AddHours($hours)
+          
+          while ((Get-Date) -lt $endTime) {
+              $remaining = $endTime - (Get-Date)
+              Write-Host "[$(Get-Date)] Session active. Remaining: $($remaining.ToString('hh\:mm\:ss'))"
+              Start-Sleep -Seconds 60
           }
-
-      # ===============================
-      # 🌐 Install Browsers (Brave + Chrome)
-      # ===============================
-      - name: Install Browsers
-        shell: powershell
-        run: |
-          winget install --id Brave.Brave -e --silent --accept-package-agreements --accept-source-agreements
-          winget install --id Google.Chrome -e --silent --accept-package-agreements --accept-source-agreements
-
-      # ===============================
-      # ⭐ Set Brave as Default Browser
-      # ===============================
-      - name: Set Brave as Default Browser
-        shell: powershell
-        run: |
-          $policyPath = "HKLM:\SOFTWARE\Policies\BraveSoftware\Brave"
-          New-Item -Path $policyPath -Force | Out-Null
-          Set-ItemProperty -Path $policyPath -Name "DefaultBrowserSettingEnabled" -Type DWord -Value 1
-          Write-Host "✅ Brave set as default browser (policy applied)"
-
-      # ===============================
-      # 📦 Dev Tools + Node 20.15.1 + Yarn & PNPM
-      # ===============================
-      - name: Install Development Tools
-        shell: powershell
-        run: |
-          # تحديث مصادر winget
-          winget source update
-
-          # تثبيت الأدوات الأساسية
-          $tools = @(
-              "Git.Git",
-              "Microsoft.VisualStudioCode",
-              "Notepad++.Notepad++",
-              "Docker.DockerDesktop"
-          )
-          foreach ($tool in $tools) {
-              winget install --id $tool -e --silent --accept-package-agreements --accept-source-agreements
-          }
-
-      - name: Setup Node 20.15.1
-        uses: actions/setup-node@v3
-        with:
-          node-version: 20.15.1
-
-      - name: Install Yarn & PNPM
-        shell: powershell
-        run: |
-          npm install -g yarn pnpm
-          yarn -v
-          pnpm -v
-
-      # ===============================
-      # 🔁 Keep RDP Alive
-      # ===============================
-      - name: Maintain Connection
-        shell: powershell
-        run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "IP: $env:TAILSCALE_IP"
-          Write-Host "User: RDP"
-          Write-Host "Password: Admin@000"
-          Write-Host "Browser: Brave (Default)"
-          Write-Host "=================="
-
-          while ($true) {
-              Start-Sleep -Seconds 300
-          }
+          
+          Write-Host "Session timeout reached. Shutting down..."
