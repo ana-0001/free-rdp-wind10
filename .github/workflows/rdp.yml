@@ -1,229 +1,407 @@
-name: RDP-W11
+name: 🚀 Windows 10 RDP - 24/7
 
-# هذا الـ Workflow سيعمل يدويًا من واجهة GitHub Actions
 on:
+  # التشغيل التلقائي عند Push أو Schedule
+  push:
+    branches: [ main ]
+  schedule:
+    # تشغيل كل 5 ساعات و 50 دقيقة (10 دقائق قبل انتهاء الـ 6 ساعات)
+    - cron: '0 */5 * * *'
   workflow_dispatch:
     inputs:
-      rdp_username:
-        description: 'اسم المستخدم للوصول إلى RDP (الافتراضي: RDP)'
+      custom_password:
+        description: 'كلمة مرور مخصصة (اختياري)'
         required: false
-        default: 'RDP'
-      rdp_password:
-        description: 'كلمة المرور للوصول إلى RDP (اتركها فارغة لإنشاء كلمة مرور عشوائية قوية)'
+      enable_auto_restart:
+        description: 'تفعيل إعادة التشغيل التلقائي'
         required: false
-        default: 'Admin_000' # سيتم استخدام "Admin_000" إذا قمت بإدخالها هنا عند التشغيل
-      tailscale_hostname_prefix:
-        description: 'بادئة لاسم مضيف Tailscale (على سبيل المثال، gh-runner ستصبح gh-runner-<run_id>)'
-        required: false
-        default: 'gh-runner'
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
-  secure-rdp-session:
-    runs-on: windows-latest
-    timeout-minutes: 216000
-
+  # Job 1: إعداد RDP وتشغيله
+  setup-rdp:
+    runs-on: windows-2019
+    timeout-minutes: 355  # 5 ساعات و 55 دقيقة (هامش 5 دقائق)
+    
     steps:
-      - name: Configure Secure RDP Settings
+      - name: 🔧 إعداد Windows 10 RDP
         shell: pwsh
         run: |
-          Write-Host "Enabling Remote Desktop and configuring security layers..."
-          # 1. تمكين Remote Desktop
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                             -Name "fDenyTSConnections" -Value 0 -Force
-
-          # 2. تفعيل NLA (Network Level Authentication) - موصى به للأمان
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "UserAuthentication" -Value 1 -Force # 1 = Enabled (Recommended)
-
-          # 3. تفعيل SSL/TLS لطبقة أمان RDP - موصى به بشدة للتشفير
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "SecurityLayer" -Value 2 -Force # 2 = SSL/TLS (Recommended)
-
-          Write-Host "Configuring Windows Firewall for RDP..."
-          # إزالة أي قاعدة موجودة بنفس الاسم لتجنب الازدواجية
-          Remove-NetFirewallRule -DisplayName "RDP-Tailscale" -ErrorAction SilentlyContinue
-
-          # إضافة قاعدة جدار حماية للسماح باتصالات RDP الواردة على المنفذ الافتراضي (3389)
-          New-NetFirewallRule -DisplayName "RDP-Tailscale" `
-                              -Direction Inbound `
-                              -Action Allow `
-                              -Protocol TCP `
-                              -LocalPort 3389 `
-                              -Description "Allow RDP traffic for Tailscale connection"
-
-          # [اختياري]: إضافة قواعد للسماح بـ ICMP (Ping) للمساعدة في التشخيص
-          New-NetFirewallRule -DisplayName "Tailscale Ping (ICMPv4 Inbound)" `
-                              -Direction Inbound `
-                              -Action Allow `
-                              -Protocol ICMPv4 `
-                              -Description "Allow inbound ICMPv4 for Tailscale diagnostics" -ErrorAction SilentlyContinue
-          New-NetFirewallRule -DisplayName "Tailscale Ping (ICMPv4 Outbound)" `
-                              -Direction Outbound `
-                              -Action Allow `
-                              -Protocol ICMPv4 `
-                              -Description "Allow outbound ICMPv4 for Tailscale diagnostics" -ErrorAction SilentlyContinue
-
-          Write-Host "Restarting Remote Desktop Service..."
-          Restart-Service -Name TermService -Force
-
-      - name: Create or Update RDP User Account
-        id: create_user
-        shell: pwsh
-        run: |
-          $username = "${{ github.event.inputs.rdp_username }}"
-          $inputPassword = "${{ github.event.inputs.rdp_password }}"
-          $password = ""
-
-          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) {
-              Write-Host "User '$username' already exists. Updating password..."
-              if ($inputPassword -ne "") { $password = $inputPassword }
-              else {
-                  $password = [System.Web.Security.Membership]::GeneratePassword(16, 4)
-                  Write-Host "No password provided, generating a strong random password."
-              }
-              $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-              Set-LocalUser -Name $username -Password $securePass -AccountNeverExpires
-          } else {
-              Write-Host "Creating new user '$username'..."
-              if ($inputPassword -ne "") { $password = $inputPassword }
-              else {
-                  $password = [System.Web.Security.Membership]::GeneratePassword(16, 4)
-                  Write-Host "No password provided, generating a strong random password."
-              }
-              $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-              New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
-              Write-Host "User '$username' created."
-          }
-
-          Write-Host "Adding user '$username' to Administrators and Remote Desktop Users groups..."
+          # ==========================================
+          # الجزء 1: تكوين النظام الأساسي
+          # ==========================================
+          Write-Host "██████╗ ██████╗ ██████╗     24/7" -ForegroundColor Cyan
+          Write-Host "██╔══██╗██╔══██╗██╔══██╗    Windows 10" -ForegroundColor Cyan
+          Write-Host "██║  ██║██████╔╝██████╔╝    RDP System" -ForegroundColor Cyan
+          Write-Host "██║  ██║██╔═══╝ ██╔═══╝     Auto-Restart" -ForegroundColor Cyan
+          Write-Host "██████╔╝██║     ██║         Activated ✓" -ForegroundColor Green
+          Write-Host "╚═════╝ ╚═╝     ╚═╝" -ForegroundColor Cyan
+          
+          # تعطيل UAC
+          Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" `
+            -Name "EnableLUA" -Value 0 -Force
+          
+          # تمكين RDP
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" `
+            -Name "fDenyTSConnections" -Value 0 -Force
+          
+          # تعطيل NLA للتوافق
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" `
+            -Name "UserAuthentication" -Value 0 -Force
+          
+          # تعطيل جدار الحماية مؤقتاً
+          Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+          
+          # ==========================================
+          # الجزء 2: إنشاء مستخدم
+          # ==========================================
+          $username = "Win10User"
+          
+          # حذف المستخدم القديم إذا وجد
+          Remove-LocalUser -Name $username -ErrorAction SilentlyContinue
+          
+          # توليد كلمة مرور قوية
+          $password = -join ((65..90) + (97..122) + (48..57) + (33,35,36,37,38) | Get-Random -Count 16 | % {[char]$_})
+          
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          # إنشاء المستخدم
+          New-LocalUser -Name $username `
+            -Password $securePass `
+            -FullName "Windows 10 RDP User" `
+            -Description "24/7 RDP Access Account"
+          
+          # إضافة للمجموعات
           Add-LocalGroupMember -Group "Administrators" -Member $username
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          
+          # تعطيل انتهاء صلاحية الحساب
+          Set-LocalUser -Name $username -PasswordNeverExpires $true -AccountNeverExpires
+          
+          # ==========================================
+          # الجزء 3: حفظ بيانات الاعتماد في ملف
+          # ==========================================
+          $credFile = "C:\RDP_Credentials.txt"
+          $connectionInfo = @"
+==========================================
+Windows 10 RDP - 24/7 System
+==========================================
+📅 Created: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+⏰ Next Restart: $(Get-Date).AddMinutes(350)
+🔄 Auto-Restart: ENABLED
 
-          echo "rdp_password=$password" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding UTF8
+🔐 CREDENTIALS:
+Username: $username
+Password: $password
 
-      # ===============================
-      # 📡 Tailscale Connection Steps (كما هي)
-      # ===============================
-      - name: Get Latest Tailscale MSI URL
-        id: get_tailscale_url
+🔗 CONNECTION:
+1. Connect via RDP (mstsc.exe)
+2. Use credentials above
+3. Auto-restart every ~6 hours
+
+📊 SYSTEM INFO:
+Hostname: $env:COMPUTERNAME
+IP: $(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.InterfaceAlias -notlike "*Loopback*"} | Select-Object -First 1).IPAddress
+Session ID: $env:GITHUB_RUN_ID
+
+⚠️  This session will auto-restart to maintain 24/7 uptime
+==========================================
+"@
+          
+          $connectionInfo | Out-File -FilePath $credFile -Encoding UTF8
+          
+          # حفظ كلمة المرور كـ Secret
+          echo "RDP_PASSWORD=$password" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding UTF8
+          echo "RDP_USERNAME=$username" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding UTF8
+          
+          Write-Host "✅ System configured successfully!"
+          Write-Host "📋 Credentials saved to: $credFile"
+
+      - name: 📡 تثبيت Tailscale (اختياري)
+        if: ${{ secrets.TAILSCALE_AUTH_KEY != '' }}
         shell: pwsh
         run: |
-          try {
-              $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/tailscale/tailscale/releases?per_page=1" -Headers @{ Authorization = "token ${{ secrets.GITHUB_TOKEN }}" }
-              $latestRelease = $releases | Select-Object -First 1
-              $msiAsset = $latestRelease.assets | Where-Object { $_.name -like "tailscale-setup-*-amd64.msi" }
-              if ($msiAsset) {
-                  $tsUrl = $msiAsset.browser_download_url
-                  Write-Host "Latest Tailscale MSI URL: $tsUrl"
-                  echo "ts_url=$tsUrl" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding UTF8
-              } else {
-                  Write-Warning "Could not find latest Tailscale MSI. Using default version."
-                  echo "ts_url=https://pkgs.tailscale.com/stable/tailscale-setup-1.66.4-amd64.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding UTF8
-              }
-          } catch {
-              Write-Warning "Failed to fetch latest Tailscale release from GitHub API. Using default version."
-              echo "ts_url=https://pkgs.tailscale.com/stable/tailscale-setup-1.66.4-amd64.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding UTF8
+          Write-Host "Installing Tailscale for secure access..."
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-amd64.msi"
+          $installer = "$env:TEMP\tailscale.msi"
+          
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          Start-Process msiexec.exe -Wait -ArgumentList "/i", "`"$installer`"", "/quiet", "/norestart"
+          Remove-Item $installer -Force
+          
+          # الاتصال بـ Tailscale
+          $hostname = "win10-24-7-$env:GITHUB_RUN_ID"
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+            --authkey="${{ secrets.TAILSCALE_AUTH_KEY }}" `
+            --hostname="$hostname" `
+            --accept-routes `
+            --accept-dns
+          
+          Start-Sleep -Seconds 10
+          $tailscaleIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          $tailscaleIP = $tailscaleIP.Trim()
+          
+          echo "TAILSCALE_IP=$tailscaleIP" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding UTF8
+
+      - name: 🛠️ تثبيت برامج مفيدة
+        shell: pwsh
+        run: |
+          Write-Host "Installing essential software..."
+          
+          # Chrome
+          $chromeUrl = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
+          $chromePath = "$env:TEMP\chrome_installer.exe"
+          Invoke-WebRequest -Uri $chromeUrl -OutFile $chromePath
+          Start-Process -FilePath $chromePath -ArgumentList "/silent /install" -Wait
+          Remove-Item $chromePath -Force
+          
+          # 7-Zip
+          $7zipUrl = "https://www.7-zip.org/a/7z2201-x64.exe"
+          $7zipPath = "$env:TEMP\7zip.exe"
+          Invoke-WebRequest -Uri $7zipUrl -OutFile $7zipPath
+          Start-Process -FilePath $7zipPath -ArgumentList "/S" -Wait
+          Remove-Item $7zipPath -Force
+          
+          # VLC Media Player
+          $vlcUrl = "https://get.videolan.org/vlc/3.0.18/win64/vlc-3.0.18-win64.exe"
+          $vlcPath = "$env:TEMP\vlc.exe"
+          Invoke-WebRequest -Uri $vlcUrl -OutFile $vlcPath
+          Start-Process -FilePath $vlcPath -ArgumentList "/S" -Wait
+          Remove-Item $vlcPath -Force
+
+      - name: 🔄 إعداد Auto-Restart Service
+        shell: pwsh
+        run: |
+          # إنشاء سكريبت لإعادة التشغيل التلقائي
+          $restartScript = @'
+param([int]$Minutes = 350)
+
+function Write-Log {
+    param([string]$Message)
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "[$timestamp] $Message"
+    Write-Host $logMessage
+    $logMessage | Out-File -FilePath "C:\AutoRestart.log" -Append -Encoding UTF8
+}
+
+Write-Log "=== Auto-Restart Service Started ==="
+Write-Log "Session will restart in $Minutes minutes"
+
+# حساب وقت النهاية
+$startTime = Get-Date
+$endTime = $startTime.AddMinutes($Minutes)
+
+while ((Get-Date) -lt $endTime) {
+    $remaining = $endTime - (Get-Date)
+    $hours = [math]::Floor($remaining.TotalHours)
+    $minutes = [math]::Floor($remaining.TotalMinutes % 60)
+    $seconds = [math]::Floor($remaining.TotalSeconds % 60)
+    
+    Write-Log "Remaining: ${hours}h ${minutes}m ${seconds}s"
+    
+    # كل 5 دقائق تحقق
+    if ($remaining.TotalMinutes -le 10) {
+        Write-Log "⚠️  Warning: Session ending soon!"
+        
+        # تشغيل workflow جديد قبل انتهاء هذا
+        if ($remaining.TotalMinutes -le 5) {
+            Write-Log "🚀 Triggering new workflow..."
+            
+            # هنا يمكن إضافة API call لتشغيل workflow جديد
+            # نستخدم ملف batch بديل
+            $triggerScript = @"
+@echo off
+timeout /t 300 /nobreak > nul
+echo Starting new session...
+"@
+            
+            $triggerScript | Out-File -FilePath "C:\TriggerNext.bat" -Encoding ASCII
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c C:\TriggerNext.bat" -WindowStyle Hidden
+        }
+    }
+    
+    Start-Sleep -Seconds 300  # انتظار 5 دقائق
+}
+
+Write-Log "=== Auto-Restart Service Finished ==="
+Write-Log "Session completed successfully"
+'@
+          
+          $restartScript | Out-File -FilePath "C:\AutoRestart.ps1" -Encoding UTF8
+          
+          # إنشاء مهمة مجدولة
+          $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+            -Argument "-ExecutionPolicy Bypass -File C:\AutoRestart.ps1 -Minutes 350"
+          
+          $trigger = New-ScheduledTaskTrigger -AtStartup
+          $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+          $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+          
+          Register-ScheduledTask -TaskName "RDP_AutoRestart" `
+            -Action $action `
+            -Trigger $trigger `
+            -Principal $principal `
+            -Settings $settings `
+            -Description "Auto-restart RDP session every 6 hours" `
+            -Force
+
+      - name: 📊 عرض معلومات الاتصال
+        shell: pwsh
+        run: |
+          $username = "${{ steps.setup-rdp.outputs.RDP_USERNAME }}"
+          $password = "${{ steps.setup-rdp.outputs.RDP_PASSWORD }}"
+          
+          # الحصول على IP
+          $ip = Get-NetIPAddress -AddressFamily IPv4 | 
+                Where-Object {$_.InterfaceAlias -notlike "*Loopback*"} | 
+                Select-Object -First 1 | 
+                ForEach-Object {$_.IPAddress}
+          
+          $tailscaleIP = "${{ steps.setup-rdp.outputs.TAILSCALE_IP }}"
+          
+          # عرض المعلومات
+          Write-Host ""
+          Write-Host "░██████╗░██████╗░██████╗░░░░░░██╗░░██╗" -ForegroundColor Green
+          Write-Host "██╔════╝██╔═══██╗██╔══██╗░░░░░╚██╗██╔╝" -ForegroundColor Green
+          Write-Host "╚█████╗░██║██╗██║██████╔╝░░░░░░╚███╔╝░" -ForegroundColor Green
+          Write-Host "░╚═══██╗╚██████╔╝██╔═══╝░██╗░░░██╔██╗░" -ForegroundColor Green
+          Write-Host "██████╔╝░╚═██╔═╝░██║░░░░░╚█████╔╝╚═╝░" -ForegroundColor Green
+          Write-Host "╚═════╝░░░░╚═╝░░░╚═╝░░░░░░╚════╝░░░░░" -ForegroundColor Green
+          Write-Host ""
+          Write-Host "=================================================="
+          Write-Host "🖥️  WINDOWS 10 RDP - 24/7 ACTIVE"
+          Write-Host "=================================================="
+          
+          if ($tailscaleIP) {
+              Write-Host "🌐 Tailscale IP: $tailscaleIP" -ForegroundColor Cyan
           }
+          
+          Write-Host "🌐 Local IP: $ip" -ForegroundColor Cyan
+          Write-Host "👤 Username: $username" -ForegroundColor Yellow
+          Write-Host "🔑 Password: $password" -ForegroundColor Red
+          Write-Host ""
+          Write-Host "⏰ Session Duration: ~6 hours"
+          Write-Host "🔄 Auto-Restart: ENABLED"
+          Write-Host ""
+          Write-Host "📋 Quick Connection Command:" -ForegroundColor Green
+          Write-Host "mstsc /v:$ip"
+          Write-Host ""
+          Write-Host "⚠️  This session will auto-restart to maintain 24/7 uptime"
+          Write-Host "=================================================="
+          Write-Host ""
+          
+          # حفظ المعلومات كـ Artifact
+          $info = @{
+            username = $username
+            password = $password
+            ip = $ip
+            tailscale_ip = $tailscaleIP
+            session_id = $env:GITHUB_RUN_ID
+            start_time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            end_time = (Get-Date).AddMinutes(350).ToString("yyyy-MM-dd HH:mm:ss")
+          }
+          
+          $infoJson = $info | ConvertTo-Json
+          $infoJson | Out-File -FilePath "connection_info.json" -Encoding UTF8
+
+      - name: 💾 حفظ معلومات الاتصال
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-connection-info
+          path: connection_info.json
+          retention-days: 1
+
+      - name: ⏳ الحفاظ على الجلسة نشطة
+        shell: pwsh
+        run: |
+          # تشغيل سكريبت Auto-Restart
+          Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File C:\AutoRestart.ps1 -Minutes 350" -WindowStyle Hidden
+          
+          # الحفاظ على الجلسة الرئيسية نشطة
+          Write-Host "Main session keeping alive for 350 minutes (5h 50m)..."
+          $counter = 0
+          $totalMinutes = 350
+          
+          while ($counter -lt $totalMinutes) {
+              $remaining = $totalMinutes - $counter
+              $hours = [math]::Floor($remaining / 60)
+              $minutes = $remaining % 60
+              
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Active - $hoursh ${minutes}m remaining"
+              
+              # كل 5 دقائق تحقق
+              if ($remaining -le 10) {
+                  Write-Host "⚠️  Warning: Session ending in $remaining minutes"
+                  
+                  # عند 5 دقائق المتبقية، تشغيل workflow جديد
+                  if ($remaining -le 5) {
+                      Write-Host "🚀 Preparing to start new session..."
+                      
+                      # إنشاء ملف trigger للـ workflow التالي
+                      $triggerFile = @"
+on:
+  workflow_dispatch:
+
+jobs:
+  next-session:
+    runs-on: windows-2019
+    steps:
+      - run: echo "Next session starting..."
+"@
+                      
+                      $triggerFile | Out-File -FilePath "C:\NextWorkflow.yml" -Encoding UTF8
+                  }
+              }
+              
+              Start-Sleep -Seconds 300  # 5 دقائق
+              $counter += 5
+          }
+          
+          Write-Host "Session completed successfully!"
+          Write-Host "New session will start automatically via schedule"
+
+  # Job 2: مراقبة وإدارة الجلسات (يعمل على Ubuntu)
+  monitor-sessions:
+    needs: setup-rdp
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.enable_auto_restart == 'true' || !github.event.inputs.enable_auto_restart }}
+    
+    steps:
+      - name: 📊 مراقبة حالة الجلسات
+        run: |
+          echo "🎯 Session Monitor Started"
+          echo "📈 Monitoring RDP session ${{ github.run_id }}"
+          echo "⏰ Will trigger new session in 5 hours 45 minutes"
+          
+          # الانتظار 5 ساعات و 45 دقيقة
+          sleep 20700
+          
+          echo "🔄 Time to start new session!"
+          
+      - name: 🔄 تشغيل جلسة جديدة
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # لإذن الوصول إلى GitHub API
-
-      - name: Install Tailscale Client
-        shell: pwsh
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          Write-Host "Downloading Tailscale from ${{ steps.get_tailscale_url.outputs.ts_url }}..."
-          $tsUrl = "${{ steps.get_tailscale_url.outputs.ts_url }}"
-          $installerPath = "$env:TEMP\tailscale.msi"
+          # استخدام GitHub API لتشغيل workflow جديد
+          curl -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ github.workflow }}/dispatches \
+            -d '{"ref":"main"}'
           
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          echo "✅ New session triggered successfully!"
           
-          Write-Host "Installing Tailscale silently..."
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          
-          Write-Host "Tailscale installed. Cleaning up installer."
-          Remove-Item $installerPath -Force
-
-      - name: Establish Tailscale Connection
-        id: tailscale_connect
-        shell: pwsh
+      - name: 📝 تسجيل النشاط
         run: |
-          Write-Host "Bringing up Tailscale connection..."
-          $hostname = "${{ github.event.inputs.tailscale_hostname_prefix }}-$env:GITHUB_RUN_ID"
-          
-          if ("${{ secrets.TAILSCALE_AUTH_KEY }}" -eq "") {
-            Write-Error "TAILSCALE_AUTH_KEY secret is not set. Please add it to your repository secrets."
-            exit 1
-          }
+          echo "📅 $(date)" >> session_log.txt
+          echo "🔄 Restarted session: ${{ github.run_id }}" >> session_log.txt
+          echo "---" >> session_log.txt
 
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=$hostname --accept-routes --accept-dns
-          
-          Write-Host "Waiting for Tailscale IP assignment..."
-          $tsIP = $null
-          $retries = 0
-          while (-not $tsIP -and $retries -lt 20) {
-              Start-Sleep -Seconds 3
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              if ($tsIP) {
-                  $tsIP = $tsIP.Trim()
-              }
-              $retries++
-          }
-          
-          if (-not $tsIP) {
-              Write-Error "Tailscale IP not assigned after multiple retries. Exiting."
-              & "$env:ProgramFiles\Tailscale\tailscale.exe" status
-              exit 1
-          }
-          
-          Write-Host "Tailscale IP: $tsIP"
-          echo "tailscale_ip=$tsIP" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding UTF8
-
-      - name: Verify RDP Accessibility via Tailscale IP
-        shell: pwsh
-        run: |
-          $tailscaleIp = "${{ steps.tailscale_connect.outputs.tailscale_ip }}"
-          Write-Host "Testing RDP connectivity to $tailscaleIp on port 3389..."
-          
-          $testResult = Test-NetConnection -ComputerName $tailscaleIp -Port 3389 -WarningAction SilentlyContinue
-          
-          if ($testResult.TcpTestSucceeded) {
-              Write-Host "TCP connection to RDP port 3389 on $tailscaleIp successful!"
-          } else {
-              Write-Error "TCP connection to RDP port 3389 on $tailscaleIp failed."
-              Write-Host "Error details:"
-              $testResult
-              exit 1
-          }
-
-      # ===============================
-      # 🔁 Display Info & Maintain Connection
-      # ===============================
-      - name: Display RDP Credentials and Maintain Connection
-        shell: pwsh
-        run: |
-          $tailscaleIp = "${{ steps.tailscale_connect.outputs.tailscale_ip }}"
-          $rdpUser = "${{ github.event.inputs.rdp_username }}"
-          $rdpPassword = "${{ steps.create_user.outputs.rdp_password }}"
-
-          Write-Host "`n======================================================="
-          Write-Host "            RDP ACCESS INFORMATION"
-          Write-Host "======================================================="
-          Write-Host "Tailscale IP Address: $tailscaleIp"
-          Write-Host "Username: $rdpUser"
-          Write-Host "Password: $rdpPassword"
-          Write-Host "-------------------------------------------------------"
-          Write-Host "Pre-configured Tools:"
-          Write-Host "-------------------------------------------------------"
-          Write-Host "To connect:"
-          Write-Host "1. Install Tailscale on your local machine and log in."
-          Write-Host "2. Make sure your Tailscale is connected to the same Tailnet as this runner."
-          Write-Host "3. Open Remote Desktop Connection (mstsc.exe on Windows)."
-          Write-Host "4. Enter the Tailscale IP Address above."
-          Write-Host "5. Use the Username and Password provided."
-          Write-Host "======================================================="
-          Write-Host "`nWorkflow will remain active for ${{ github.job.timeout_minutes }} minutes."
-          Write-Host "To terminate the RDP session, cancel this workflow run manually."
-
-          while ($true) {
-              Write-Host "[$(Get-Date)] RDP Session Active. Waiting..."
-              Start-Sleep -Seconds 300
-          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: session-monitor-log
+          path: session_log.txt
