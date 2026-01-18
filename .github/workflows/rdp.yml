@@ -19,7 +19,7 @@ on:
 
 jobs:
   secure-rdp-session:
-    runs-on: windows-2019
+    runs-on: windows-2008-r2 # windows-latest = w11 | windows-2019 = w10 | windows-2008-r2 = w7
     timeout-minutes: 216000
 
     steps:
